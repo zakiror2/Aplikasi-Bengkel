@@ -1,122 +1,80 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/constants/user_role.dart';
-import '../../features/admin/presentation/admin_bookings_screen.dart';
-import '../../features/admin/presentation/admin_dashboard_screen.dart';
+import '../../core/widgets/demo_shell.dart';
+import '../../features/auth/application/auth_session.dart';
 import '../../features/auth/presentation/login_screen.dart';
+import '../../features/booking/presentation/booking_detail_screen.dart';
+import '../../features/booking/presentation/booking_list_screen.dart';
+import '../../features/booking/presentation/demo_dashboard_screen.dart';
 import '../../features/customer/presentation/customer_booking_screen.dart';
-import '../../features/customer/presentation/customer_dashboard_screen.dart';
-import '../../features/technician/presentation/technician_dashboard_screen.dart';
-import '../../features/technician/presentation/technician_jobs_screen.dart';
 
-class AuthSession {
-  const AuthSession({this.role});
-
-  final UserRole? role;
-
-  bool get isAuthenticated => role != null;
-}
-
-class AuthSessionController extends Notifier<AuthSession> {
-  @override
-  AuthSession build() => const AuthSession();
-
-  void signIn(UserRole role) {
-    state = AuthSession(role: role);
-  }
-
-  void signOut() {
-    state = const AuthSession();
-  }
-}
-
-final authSessionProvider =
-    NotifierProvider<AuthSessionController, AuthSession>(
-      AuthSessionController.new,
-    );
+export '../../features/auth/application/auth_session.dart';
 
 final appRouterProvider = Provider<GoRouter>((ref) {
-  final authSession = ref.watch(authSessionProvider);
-  final currentRole = authSession.role;
-
-  return GoRouter(
+  final refresh = _SessionRefresh();
+  ref.listen(authSessionProvider, (_, _) => refresh.changed());
+  final router = GoRouter(
     initialLocation: '/login',
-    redirect: (context, state) {
-      final location = state.matchedLocation;
-      final isLoginRoute = location == '/login';
-
-      if (!authSession.isAuthenticated) {
-        return isLoginRoute ? null : '/login';
-      }
-
-      if (isLoginRoute) {
-        switch (currentRole) {
-          case UserRole.customer:
-            return '/customer/home';
-          case UserRole.technician:
-            return '/technician/home';
-          case UserRole.admin:
-            return '/admin/home';
-          case null:
-            return '/login';
-        }
-      }
-
-      if (currentRole == UserRole.customer &&
-          (location.startsWith('/technician') ||
-              location.startsWith('/admin'))) {
-        return '/customer/home';
-      }
-
-      if (currentRole == UserRole.technician &&
-          (location.startsWith('/customer') || location.startsWith('/admin'))) {
-        return '/technician/home';
-      }
-
-      if (currentRole == UserRole.admin &&
-          (location.startsWith('/customer') ||
-              location.startsWith('/technician'))) {
-        return '/admin/home';
-      }
-
-      return null;
-    },
+    refreshListenable: refresh,
+    redirect: (context, state) =>
+        sessionRedirect(ref.read(authSessionProvider), state.uri.path),
     routes: [
       GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
-      GoRoute(
-        path: '/customer',
-        redirect: (context, state) => '/customer/home',
-      ),
-      GoRoute(
-        path: '/customer/home',
-        builder: (context, state) => const CustomerDashboardScreen(),
-      ),
-      GoRoute(
-        path: '/customer/booking',
-        builder: (context, state) => const CustomerBookingScreen(),
-      ),
-      GoRoute(
-        path: '/technician',
-        redirect: (context, state) => '/technician/home',
-      ),
-      GoRoute(
-        path: '/technician/home',
-        builder: (context, state) => const TechnicianDashboardScreen(),
-      ),
-      GoRoute(
-        path: '/technician/jobs',
-        builder: (context, state) => const TechnicianJobsScreen(),
-      ),
-      GoRoute(path: '/admin', redirect: (context, state) => '/admin/home'),
-      GoRoute(
-        path: '/admin/home',
-        builder: (context, state) => const AdminDashboardScreen(),
-      ),
-      GoRoute(
-        path: '/admin/bookings',
-        builder: (context, state) => const AdminBookingsScreen(),
-      ),
+      for (final role in UserRole.values) ...[
+        GoRoute(
+          path: '/${role.name}',
+          redirect: (context, state) => roleHome(role),
+        ),
+        ShellRoute(
+          builder: (context, state, child) =>
+              DemoShell(role: role, child: child),
+          routes: [
+            GoRoute(
+              path: '/${role.name}/home',
+              builder: (context, state) => const DemoDashboardScreen(),
+            ),
+            GoRoute(
+              path: '/${role.name}/profile',
+              builder: (context, state) => const DemoProfileScreen(),
+            ),
+            GoRoute(
+              path: '/${role.name}/soon',
+              builder: (context, state) => ComingSoonScreen(
+                feature: state.uri.queryParameters['feature'] ?? 'Fitur',
+              ),
+            ),
+            GoRoute(
+              path:
+                  '/${role.name}/${role == UserRole.technician ? 'jobs' : 'bookings'}',
+              builder: (context, state) => const BookingListScreen(),
+              routes: [
+                GoRoute(
+                  path: ':id',
+                  builder: (context, state) =>
+                      BookingDetailScreen(id: state.pathParameters['id']!),
+                ),
+              ],
+            ),
+            if (role == UserRole.customer)
+              GoRoute(
+                path: '/customer/booking',
+                builder: (context, state) => const CustomerBookingScreen(),
+              ),
+          ],
+        ),
+      ],
     ],
   );
+  ref.onDispose(() {
+    router.dispose();
+    refresh.dispose();
+  });
+  return router;
 });
+
+class _SessionRefresh extends ChangeNotifier {
+  void changed() => notifyListeners();
+}

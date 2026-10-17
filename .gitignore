@@ -46,3 +46,15 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# Signing and private credentials (Firebase client configs are not private keys).
+**/key.properties
+*.jks
+*.keystore
+*.p12
+*.p8
+*.mobileprovision
+**/*service-account*.json
+**/*serviceAccount*.json
+.env
+.env.*
